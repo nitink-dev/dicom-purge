@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: DicomPurge
+    main:
+      banner-mode: log
+  server:
+    port: 8080
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017
+      username:
+      password:
+      database: enrich_db
+      authentication-database: admin
+      auto-index-creation: true
+      connect-timeout: 1000
+      socket-timeout: 1000
+      retry-writes: false
+#db:
+#  connector:
+#    insert:
+#      uri: dicom/instances
+#  service:
+#    url: http://localhost:8081/api/
+
+
+
+
+
