@@ -16,6 +16,19 @@ spring:
       connect-timeout: 1000
       socket-timeout: 1000
       retry-writes: false
+
+dicom:
+  expiry:
+    days: 7
+
+scheduler:
+  purge-cron: "0 0 * * * *" # every hour
+
+optfile:
+  server:
+    path: /optFile/server
+
+
 #db:
 #  connector:
 #    insert:

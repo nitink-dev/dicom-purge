@@ -1,6 +1,7 @@
 package com.eh.digitalpathology.dicompurge.entity;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -19,7 +20,9 @@ public class DicomInstance {
     private String barcode;
     private String intermediateStoragePath;
     private String processingStatus;
+    @Indexed
     private Instant dicomInstanceReceivedTimestamp;
+    @Indexed
     private Instant enrichmentTimestamp;
 
     public String getId() {
