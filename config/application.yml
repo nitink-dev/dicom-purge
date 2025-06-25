@@ -28,6 +28,15 @@ optfile:
   server:
     path: /optFile/server
 
+  purgeDuration:
+    DICOM_FILE_RECEIVED: 12h
+    LIS_QUERY_GENERATED: 12h
+    LIS_QUERY_SENT: 12h
+    ENRICHMENT_STARTED_IN_PROGRESS: 8h
+    ENRICHMENT_COMPLETED: 8h
+    ENRICHMENT_FAILED: 8h
+    #NEGATIVE_QUERY: 0s  # delete immediately
+
 
 #db:
 #  connector:

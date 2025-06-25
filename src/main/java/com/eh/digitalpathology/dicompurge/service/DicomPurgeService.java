@@ -1,5 +1,6 @@
 package com.eh.digitalpathology.dicompurge.service;
 
+import com.eh.digitalpathology.dicompurge.config.DicomPurgeProperties;
 import com.eh.digitalpathology.dicompurge.entity.DicomInstance;
 import com.eh.digitalpathology.dicompurge.entity.DicomInstanceRepository;
 import com.eh.digitalpathology.dicompurge.entity.EnrichmentPurge;
@@ -7,7 +8,6 @@ import com.eh.digitalpathology.dicompurge.entity.EnrichmentPurgeRepository;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -16,77 +16,98 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class DicomPurgeService {
-
-    @Value("${dicom.expiry.days}")
-    private int expiryDays;
 
     @Value("${optfile.server.path}")
     private String fileRootPath;
 
     private final DicomInstanceRepository dicomInstanceRepository;
     private final EnrichmentPurgeRepository enrichmentPurgeRepository;
+    private final Map<WorkflowStatusEnum, Duration> purgeDurations;
 
     @Autowired
     public DicomPurgeService(DicomInstanceRepository dicomInstanceRepository,
-                              EnrichmentPurgeRepository enrichmentPurgeRepository) {
+                             EnrichmentPurgeRepository enrichmentPurgeRepository,
+                             DicomPurgeProperties dicomPurgeProperties) {
         this.dicomInstanceRepository = dicomInstanceRepository;
         this.enrichmentPurgeRepository = enrichmentPurgeRepository;
+        this.purgeDurations = dicomPurgeProperties.getPurgeDuration();
     }
 
-    @PostConstruct  // only for testing, remove this after testing.
+    @PostConstruct
     public void purgeExpiredDicomFiles() {
-        Instant expiryThreshold = Instant.now().minus(Duration.ofDays(expiryDays));
-        List<DicomInstance> expiredInstances = dicomInstanceRepository
-                .findByDicomInstanceReceivedTimestampBeforeOrEnrichmentTimestampBefore(
-                        expiryThreshold, expiryThreshold
-                );
+        List<DicomInstance> eligibleInstances = dicomInstanceRepository.findUnpurgedInstances();
 
-        for (DicomInstance instance : expiredInstances) {
-            String filePath = Paths.get(
-                    fileRootPath,
-                    instance.getActualStudyInstanceUid(),
-                    instance.getSeriesInstanceUid(),
-                    instance.getSopInstanceUid() + ".dcm"
-            ).toString();
+        for (DicomInstance instance : eligibleInstances) {
+            String rawStatus = instance.getProcessingStatus();
 
+            WorkflowStatusEnum status;
             try {
-                Files.deleteIfExists(Paths.get(filePath));
+                status = WorkflowStatusEnum.valueOf(rawStatus);
+            } catch (IllegalArgumentException e) {
+                System.out.println("Skipping unknown status: " + rawStatus);
+                continue;
+            }
 
-                EnrichmentPurge purge = new EnrichmentPurge();
-                purge.setSopInstanceUid(instance.getSopInstanceUid());
-                purge.setDeletionDate(Instant.now());
-                purge.setDeletionCriteria(getDeletionCriteria(expiryThreshold, instance));
+            Duration expiry = purgeDurations.get(status);
+            if (expiry == null) continue;
 
-                enrichmentPurgeRepository.save(purge);
+//            if (expiry.isZero()) {
+//                deleteDicomFile(instance, "Immediate purge: " + status.name());
+//                continue;
+//            }
 
-                System.out.println("Deleted file: " + filePath);
+            Instant referenceTime = getRelevantTimestamp(status, instance);
+            if (referenceTime == null) continue;
 
-            } catch (IOException e) {
-                System.err.println("Failed to delete file: " + filePath);
-                e.printStackTrace();
+            Instant threshold = Instant.now().minus(expiry);
+            if (referenceTime.isBefore(threshold)) {
+                deleteDicomFile(instance, status.name() + " expired after " + expiry.toHours() + " hours");
             }
         }
     }
 
-    private String getDeletionCriteria(Instant expiryThreshold, DicomInstance instance) {
-        boolean isReceivedExpired = instance.getDicomInstanceReceivedTimestamp() != null &&
-                instance.getDicomInstanceReceivedTimestamp().isBefore(expiryThreshold);
+    private Instant getRelevantTimestamp(WorkflowStatusEnum status, DicomInstance instance) {
+        return switch (status) {
+            case DICOM_INSTANCE_RECEIVED, LIS_REQUEST_GENERATED, LIS_RESPONSE_RECEIVED ->
+                    instance.getDicomInstanceReceivedTimestamp();
+            case ENRICHMENT_STARTED, ENRICHMENT_COMPLETED, ENRICHMENT_FAILED ->
+                    instance.getEnrichmentTimestamp();
+        };
+    }
 
-        boolean isEnrichmentExpired = instance.getEnrichmentTimestamp() != null &&
-                instance.getEnrichmentTimestamp().isBefore(expiryThreshold);
+    private void deleteDicomFile(DicomInstance instance, String reason) {
+        String filePath = Paths.get(
+                fileRootPath,
+                instance.getActualStudyInstanceUid(),
+                instance.getSeriesInstanceUid(),
+                instance.getSopInstanceUid() + ".dcm"
+        ).toString();
 
-        // Build deletion criteria based on which timestamps are expired
-        String deletionCriteria = null;
-        if (isReceivedExpired && isEnrichmentExpired) {
-            deletionCriteria = "Received and Enrichment Dates older than " + expiryDays + " days";
-        } else if (isReceivedExpired) {
-            deletionCriteria = "Received Date older than " + expiryDays + " days";
-        } else if (isEnrichmentExpired) {
-            deletionCriteria = "Enrichment Date older than " + expiryDays + " days";
+        try {
+            boolean deleted = Files.deleteIfExists(Paths.get(filePath));
+            if (deleted) {
+                EnrichmentPurge purge = new EnrichmentPurge();
+                purge.setSopInstanceUid(instance.getSopInstanceUid());
+                purge.setDeletionDate(Instant.now());
+                purge.setDeletionCriteria(reason);
+                purge.setDicomInstanceReceivedTimeStamp(instance.getDicomInstanceReceivedTimestamp());
+                purge.setDicomInstanceDeletedTimeStamp(Instant.now());
+
+                enrichmentPurgeRepository.save(purge);
+
+                System.out.println("Deleted: " + filePath + " | Reason: " + reason);
+            } else {
+                System.out.println("File not found: " + filePath);
+            }
+
+        } catch (IOException e) {
+            System.err.println("Failed to delete: " + filePath);
+            e.printStackTrace();
         }
-        return deletionCriteria;
     }
 }

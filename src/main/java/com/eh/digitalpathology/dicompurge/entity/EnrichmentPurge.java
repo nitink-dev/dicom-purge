@@ -13,6 +13,9 @@ public class EnrichmentPurge {
     private String sopInstanceUid;
     private Instant deletionDate;
     private String deletionCriteria;
+    private Instant dicomInstanceReceivedTimeStamp;
+    private Instant dicomInstanceDeletedTimeStamp;
+
 
     public String getId() {
         return id;
@@ -44,5 +47,21 @@ public class EnrichmentPurge {
 
     public void setDeletionCriteria(String deletionCriteria) {
         this.deletionCriteria = deletionCriteria;
+    }
+
+    public Instant getDicomInstanceReceivedTimeStamp() {
+        return dicomInstanceReceivedTimeStamp;
+    }
+
+    public void setDicomInstanceReceivedTimeStamp(Instant dicomInstanceReceivedTimeStamp) {
+        this.dicomInstanceReceivedTimeStamp = dicomInstanceReceivedTimeStamp;
+    }
+
+    public Instant getDicomInstanceDeletedTimeStamp() {
+        return dicomInstanceDeletedTimeStamp;
+    }
+
+    public void setDicomInstanceDeletedTimeStamp(Instant dicomInstanceDeletedTimeStamp) {
+        this.dicomInstanceDeletedTimeStamp = dicomInstanceDeletedTimeStamp;
     }
 }
